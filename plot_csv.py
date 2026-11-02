@@ -2,7 +2,7 @@ from matplotlib import pyplot as plt
 from matplotlib.patches import Circle
 import numpy as np
 
-data = np.loadtxt("results500.csv", delimiter=",", dtype=np.double)
+data = np.loadtxt("build/results_lvs500.csv", delimiter=",", dtype=np.double)
 
 fig, ax = plt.subplots()
 im = ax.imshow(
