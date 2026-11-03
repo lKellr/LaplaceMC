@@ -28,4 +28,4 @@ ax.add_patch(circle_upperight)
 
 fig.colorbar(im, ax=ax)
 # fig.savefig("results500.svg")
-fig.show()
+plt.show()
