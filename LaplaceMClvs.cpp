@@ -6,11 +6,14 @@
 #include <random>
 #include <vector>
 
-constexpr int n_nodes = 200;
+constexpr int n_nodes = 500;
 constexpr int samples_per_cell = 10;
 constexpr int rd_seed = 12345; // std::random_device rd();
 constexpr bool post_smooth = false;
 constexpr bool use_lvs = true;
+
+using grid_view =
+    std::mdspan<double, std::extents<std::size_t, n_nodes, n_nodes>>;
 
 const inline std::function<double(double, double)> boundary_func =
     [](double x, double y) {
@@ -29,11 +32,11 @@ const std::string filename = "results_lvs" + std::to_string(n_nodes) +
 
 enum smoothing_kernel { FD, MEAN, GAUSS };
 
-void solve_Laplace_random_walk(std::vector<double> &);
+void solve_Laplace_random_walk(const grid_view);
 
-void write_array(const std::vector<double>, const int, const std::string);
+void write_array(const grid_view, const std::string);
 
-template <const smoothing_kernel> void smooth(std::vector<double> &, const int);
+template <const smoothing_kernel> void smooth(grid_view, const int);
 
 int main(int argc, char **argv) {
   (void)argc;
@@ -42,25 +45,24 @@ int main(int argc, char **argv) {
   // initialize ouput array
   std::vector<double> phi_raw(n_nodes * n_nodes, 0.0);
 
-  solve_Laplace_random_walk(phi_raw);
+  auto phi_mdview = grid_view(phi_raw.data());
+  solve_Laplace_random_walk(phi_mdview);
 
   // possible smoothing step, problematic w.r.t BCs
   if (post_smooth)
-    smooth<FD>(phi_raw, 20);
+    smooth<GAUSS>(phi_mdview, 20);
 
   // write results
-  write_array(phi_raw, n_nodes, filename);
+  write_array(phi_mdview, filename);
 
   return 0;
 }
 
-void solve_Laplace_random_walk(std::vector<double> &phi_raw) {
-  auto phi_md = std::mdspan(phi_raw.data(), n_nodes, n_nodes);
+void solve_Laplace_random_walk(const grid_view phi_mdview) {
 
   // evalute level-set field on nodes
   std::vector<double> boundary_geometry_lvs_raw(n_nodes * n_nodes, 0.0);
-  auto boundary_geometry_lvs_md =
-      std::mdspan(boundary_geometry_lvs_raw.data(), n_nodes, n_nodes);
+  auto boundary_geometry_lvs_md = grid_view(boundary_geometry_lvs_raw.data());
 #pragma omp parallel for collapse(2)
   for (int ix_i = 1; ix_i < n_nodes - 1; ix_i++)
     for (int ix_j = 1; ix_j < n_nodes - 1; ix_j++)
@@ -104,26 +106,23 @@ void solve_Laplace_random_walk(std::vector<double> &phi_raw) {
             }
           }
           // update expectation value
-          phi_md[ix_i, ix_j] +=
+          phi_mdview[ix_i, ix_j] +=
               (boundary_func(ix_i_particle / static_cast<double>(n_nodes - 1),
                              ix_j_particle / static_cast<double>(n_nodes - 1)) -
-               phi_md[ix_i, ix_j]) /
+               phi_mdview[ix_i, ix_j]) /
               (ix_sample + 1);
         }
   }
 }
 
-void write_array(const std::vector<double> array, const int array_size,
-                 const std::string filename) {
+void write_array(const grid_view array_view_md, const std::string filename) {
   std::cout << "outputting results as " << filename << std::endl;
   std::ofstream output_file;
   output_file.open(filename, std::ios::trunc);
 
-  const auto array_view_md = std::mdspan(array.data(), array_size, array_size);
-
-  for (int ix_i = 0; ix_i < array_size; ix_i++) {
+  for (int ix_i = 0; ix_i < n_nodes; ix_i++) {
     bool first = true;
-    for (int ix_j = 0; ix_j < array_size; ix_j++) {
+    for (int ix_j = 0; ix_j < n_nodes; ix_j++) {
       if (!first) {
         output_file << ",";
       }
@@ -136,11 +135,10 @@ void write_array(const std::vector<double> array, const int array_size,
 }
 
 template <const smoothing_kernel filter_type>
-void smooth(std::vector<double> &array, const int iterations) {
+void smooth(grid_view array_in_md, const int iterations) {
 
   std::vector<double> array_tmp_raw(n_nodes * n_nodes, 0.0);
-  auto array_tmp_md = std::mdspan(array_tmp_raw.data(), n_nodes, n_nodes);
-  auto array_in_md = std::mdspan(array.data(), n_nodes, n_nodes);
+  auto array_tmp_md = grid_view(array_tmp_raw.data());
 
   // fill boundary values
   for (int ix = 0; ix < n_nodes; ix++) {
